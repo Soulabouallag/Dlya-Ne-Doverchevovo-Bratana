@@ -1,0 +1,73 @@
+name: Unpack and Push with LFS
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  unpack:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies (unrar, zstd, git-lfs)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zstd unrar git-lfs
+          git lfs install
+
+      - name: Detect and extract any archive
+        run: |
+          for archive in *.tar.zst *.tar.gz *.tar.xz *.tar.bz2 *.zip *.rar; do
+            if [ -f "$archive" ]; then
+              echo "📦 Found: $archive"
+              file_type=$(file -b --mime-type "$archive")
+              echo "🔍 MIME type: $file_type"
+              case "$file_type" in
+                application/zip)
+                  unzip -q "$archive" && rm -v "$archive" ;;
+                application/x-tar|application/zstd)
+                  tar -xf "$archive" && rm -v "$archive" ;;
+                application/gzip)
+                  tar -xzf "$archive" && rm -v "$archive" ;;
+                application/x-xz)
+                  tar -xf "$archive" && rm -v "$archive" ;;
+                application/x-bzip2)
+                  tar -xjf "$archive" && rm -v "$archive" ;;
+                application/vnd.rar|application/x-rar)
+                  unrar x -y "$archive" && rm -v "$archive" ;;
+                *)
+                  echo "⚠️ Unknown type, trying tar fallback"
+                  tar -xf "$archive" 2>/dev/null && rm -v "$archive" || echo "❌ Failed"
+                  ;;
+              esac
+            fi
+          done
+
+      - name: Track large files with Git LFS
+        run: |
+          # Находим все файлы больше 100 МБ и добавляем их в LFS
+          find . -type f -size +100M | while read -r file; do
+            echo "🔍 Large file detected: $file"
+            git lfs track "$file"
+          done
+          # Также можно явно добавить известные большие файлы
+          git lfs track "mpv/mpv.exe" 2>/dev/null || true
+          git lfs track "mpv/libmpv-2.dll" 2>/dev/null || true
+          # Добавляем .gitattributes
+          git add .gitattributes
+
+      - name: Commit and push with LFS
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          # Проверяем, есть ли изменения
+          if git diff --staged --quiet; then
+            echo "✅ No changes to commit"
+          else
+            git commit -m "📦 Auto-extract and add large files via LFS"
+            git push
+          fi
