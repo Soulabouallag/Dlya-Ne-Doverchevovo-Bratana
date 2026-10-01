@@ -1,0 +1,2 @@
+mpv/mpv.exe filter=lfs diff=lfs merge=lfs -text
+mpv/libmpv-2.dll filter=lfs diff=lfs merge=lfs -text
